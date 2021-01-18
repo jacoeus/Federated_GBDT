@@ -7,15 +7,36 @@ from preprocess import CompDataset
 from preprocess import get_user_data
 from collections import Counter
 import pickle
-import torch
-import torch.nn.functional as F
-from torch import Tensor
+import random
 
 
 class Worker(object):
     SAVE_DIR = '/tmp/model/'
 
     def __init__(self, booster_dim, bin_num, feature_num, u):
+        self.booster_dim = booster_dim
+        self.bin_num = bin_num
+        self.feature_num = feature_num
+        x, y = get_user_data(user_idx=u)
+        x[x == np.inf] = 1.
+        x[np.isnan(x)] = 0.
+        self.data_bin = x
+        self.y = np.array(y)
+        self.u = u
+
+    def build_projects(self):
+        projects = []
+        s = random.sample(range(20000), 100)
+        projects.append(Project(self.booster_dim, self.bin_num, self.feature_num, self.data_bin[s, :], self.y[s], self.u))
+        s = random.sample((range(49500)[29500:]), 100)
+        projects.append(Project(self.booster_dim, self.bin_num, self.feature_num, self.data_bin[s, :], self.y[s], self.u))
+        return projects
+
+
+class Project(object):
+    SAVE_DIR = '/tmp/model/'
+
+    def __init__(self, booster_dim, bin_num, feature_num, x, y, u):
         self.booster_dim = booster_dim
         self.bin_num = bin_num
         self.feature_num = feature_num
@@ -31,9 +52,10 @@ class Worker(object):
         self.y_hat = None
         self.init_score = None
         self.all_g_h = None
-        x, y = get_user_data(user_idx=u)
         x[x == np.inf] = 1.
         x[np.isnan(x)] = 0.
+        # self.ori_data_bin = x
+        # self.ori_y = np.array(y)
         self.data_bin = x
         self.y = np.array(y)
         self.u = u
@@ -42,10 +64,13 @@ class Worker(object):
     Boosting Fit
     """
 
+    def set_datebin_feature(self, feature_list):
+        self.data_bin = self.data_bin[:, feature_list]
+
     def count_label(self):
         return self.u, Counter(self.y)
 
-    def fit_get_quantile(self):
+    def receive_quantile_info(self):
         summary_list = []
         for i in range(self.feature_num):
             summary_list.append(quantile_summary_factory(False))
@@ -77,7 +102,7 @@ class Worker(object):
         self.estimators = HomoDecisionTreeClient(self.data_bin, self.bin_split_points, g_h, self.feature_num)
         # assert len(self.estimators) == class_idx + 1
 
-    def fit_aggregate_g_h(self, class_idx):  # for class_idx in range(self.booster_dim)
+    def receive_g_h_info(self, class_idx):  # for class_idx in range(self.booster_dim)
         return self.estimators.fit_send_g_h()
 
     def fit_distribute_global_g_h(self, class_idx, global_g_sum, global_h_sum):
@@ -86,10 +111,10 @@ class Worker(object):
     def fit_tree_stop(self, class_idx):
         self.estimators.fit_break()
 
-    def fit_cur_layer_node_num(self, class_idx):
+    def receive_cur_layer_node_num_info(self, class_idx):
         return self.estimators.fit_cur_layer_node_num()
 
-    def fit_aggregate_local_h(self, class_idx, dep):
+    def receive_local_h_info(self, class_idx, dep):
         return self.estimators.fit_send_local_h(dep)
 
     def fit_distribute_split_info(self, class_idx, dep, split_info):
@@ -106,11 +131,8 @@ class Worker(object):
 
         save_path = self.SAVE_DIR + "{}-{}.pkl".format(epoch_idx, class_idx, )
         file = open(save_path, 'wb')
-        pickle.dump(self.estimators, file)  # 把 this worker model永久保存到文件中
-        file.close()  # 关闭文件
-
-    # def fit_send_tree_list(self):
-    #     return self.tree_node
+        pickle.dump(self.estimators, file)
+        file.close()
 
     def traverse_tree(self, data_inst, tree: List[Node]):
         nid = 0  # root node id
@@ -120,14 +142,12 @@ class Worker(object):
 
             cur_node = tree[nid]
             fid, bid = cur_node.fid, cur_node.bid
-
             if data_inst[fid] <= bid + 1e-8:
                 nid = tree[nid].left_nodeid
             else:
                 nid = tree[nid].right_nodeid
 
     def predict(self, data_inst, lr, boosting_round):
-
         predicts = []
         tree_list = []
         for boost_idx in range(boosting_round):
@@ -179,90 +199,3 @@ class Worker(object):
             new_valid_features.append(fid)
 
         self.set_valid_features(new_valid_features)
-
-
-class NNWorker(object):
-    def __init__(self, user_idx):
-        self.user_idx = user_idx
-        self.data = get_user_data(self.user_idx)  # The worker can only access its own data
-        self.ps_info = {}
-
-    def preprocess_data(self):
-        x, y = self.data
-        x[x == np.inf] = 1.
-        x[np.isnan(x)] = 0.
-        self.data = (x, y)
-
-    def round_data(self, n_round, n_round_samples=-1):
-        """Generate data for user of user_idx at round n_round.
-
-        Args:
-            n_round: int, round number
-            n_round_samples: int, the number of samples this round
-        """
-
-        if n_round_samples == -1:
-            return self.data
-
-        n_samples = len(self.data[1])
-        choices = np.random.choice(n_samples, min(n_samples, n_round_samples))
-
-        return self.data[0][choices], self.data[1][choices]
-
-    def receive_server_info(self, info):  # receive info from PS
-        self.ps_info = info
-
-    def process_mean_round_train_acc(self):  # process the "mean_round_train_acc" info from server
-        mean_round_train_acc = self.ps_info["mean_round_train_acc"]
-        # You can go on to do more processing if needed
-
-    def user_round_train(self, model, device, n_round, batch_size, n_round_samples=-1, debug=False):
-
-        X, Y = self.round_data(n_round, n_round_samples)
-        data = CompDataset(X=X, Y=Y)
-        train_loader = torch.utils.data.DataLoader(
-            data,
-            batch_size=batch_size,
-            shuffle=True,
-        )
-
-        model.train()
-
-        correct = 0
-        prediction = []
-        real = []
-        total_loss = 0
-        model = model.to(device)
-        for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
-            # import ipdb
-            # ipdb.set_trace()
-            # print(data.shape, target.shape)
-            data = torch.unsqueeze(data, dim=0)
-            data = data.float()
-            output = model(data)
-            loss = F.nll_loss(output, target)
-            total_loss += loss
-            loss.backward()
-            pred = output.argmax(
-                dim=1, keepdim=True)  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
-            prediction.extend(pred.reshape(-1).tolist())
-            real.extend(target.reshape(-1).tolist())
-
-        grads = {'n_samples': data.shape[0], 'named_grads': {}}
-        for name, param in model.named_parameters():
-            # print('User {}'.format(self.user_idx))
-            # print(type(param))
-            # print(type(param.grad))
-            if isinstance(param.grad, Tensor) == True:
-                grads['named_grads'][name] = param.grad.detach().cpu().numpy()
-
-        worker_info = {}
-        worker_info["train_acc"] = correct / len(train_loader.dataset)
-
-        if debug:
-            print('Training Loss: {:<10.2f}, accuracy: {:<8.2f}'.format(
-                total_loss, 100. * correct / len(train_loader.dataset)))
-
-        return grads, worker_info

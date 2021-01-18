@@ -13,8 +13,9 @@ class ParameterServer(HomoDecisionTreeArbiter):
     def __init__(self, feature_num, boosting_round, booster_dim, bin_num, learning_rate, max_depth, testworkdir,
                  resultdir, modeldir):
         super().__init__()
-        self.all_workers = []
+        self.projects = []
         self.workers = []
+        self.workers_project = []
         self.global_bin_split_points = []
         self.feature_num = feature_num
         self.boosting_round = boosting_round
@@ -29,10 +30,10 @@ class ParameterServer(HomoDecisionTreeArbiter):
         self.test_data = get_test_data()
         # self.test_data_loader = get_test_loader()
         self.label_distribution = []
-
         self.group_id = 0
         self.group_num = 12
         self.predictions = []
+        self.work_parm = []
 
     def treeEnsemble(self, pred_results):
         print("Start to aggregate.")
@@ -66,10 +67,12 @@ class ParameterServer(HomoDecisionTreeArbiter):
 
     def ensemble(self):
         for i in range(self.group_num):
-            self.workers = []
-            for uid in self.label_distribution[i]:
-                print(self.all_workers[uid].count_label())
-                self.workers.append(self.all_workers[uid])
+            # s = random.sample(range(79), 10)
+            self.workers_project = []
+            for pid in self.label_distribution[i]:
+                print(self.projects[pid].count_label())
+                # self.projects[pid].set_data_bin_feature(slice)
+                self.workers_project.append(self.projects[pid])
             self.aggregate()
             loader = torch.utils.data.DataLoader(
                 self.test_data,
@@ -82,29 +85,27 @@ class ParameterServer(HomoDecisionTreeArbiter):
                     data = np.array(data)
                     test_data.extend(data)
             test_data = np.array(test_data)
+
             self.predictions.append(self.predict_data(test_data.tolist()))
 
     def build(self, workers):
+        for worker in workers:
+            self.projects += worker.build_projects()
         label_dict = {}
         self.label_distribution = [[] for i in range(self.group_num)]
-        for worker in workers:
-            u_id, c = worker.count_label()
+        for i in range(len(self.projects)):
+            u_id, c = self.projects[i].count_label()
             for key, value in c.items():
                 if key in label_dict:
-                    label_dict[key].append(u_id)
+                    label_dict[key].append(i)
                 else:
-                    label_dict[key] = [u_id]
-
+                    label_dict[key] = [i]
         print(label_dict)
-
         for key, value in label_dict.items():
             for i in range(self.group_num):
                 self.label_distribution[i].append(value[i])
         print(self.label_distribution)
-
-        print(self.workers)
-
-        self.all_workers = workers
+        self.workers = workers
         print('user number is:{}'.format(len(self.workers)))
 
     def get_quantile(self):
