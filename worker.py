@@ -26,10 +26,13 @@ class Worker(object):
 
     def build_projects(self):
         projects = []
-        s = random.sample(range(20000), 100)
-        projects.append(Project(self.booster_dim, self.bin_num, self.feature_num, self.data_bin[s, :], self.y[s], self.u))
-        s = random.sample((range(49500)[29500:]), 100)
-        projects.append(Project(self.booster_dim, self.bin_num, self.feature_num, self.data_bin[s, :], self.y[s], self.u))
+        for i in range(20):
+            projects.append(Project(self.booster_dim, self.bin_num,
+                                    self.feature_num, self.data_bin[i * 1000: (i + 1) * 1000, :],
+                                    self.y[i * 1000: (i + 1) * 1000], self.u))
+            projects.append(Project(self.booster_dim, self.bin_num, self.feature_num,
+                                    self.data_bin[4950-(i + 1) * 1000: 4950 - i * 1000, :],
+                                    self.y[4950 - (i + 1) * 1000: 4950 - i * 1000], self.u))
         return projects
 
 

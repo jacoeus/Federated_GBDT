@@ -7,6 +7,7 @@ import numpy as np
 from homo_decision_tree.homo_decision_tree_arbiter import HomoDecisionTreeArbiter
 from worker import Worker
 from preprocess import get_test_data
+import random
 
 
 class ParameterServer(HomoDecisionTreeArbiter):
@@ -31,7 +32,7 @@ class ParameterServer(HomoDecisionTreeArbiter):
         # self.test_data_loader = get_test_loader()
         self.label_distribution = []
         self.group_id = 0
-        self.group_num = 12
+        self.group_num = 120
         self.predictions = []
         self.work_parm = []
 
@@ -67,11 +68,11 @@ class ParameterServer(HomoDecisionTreeArbiter):
 
     def ensemble(self):
         for i in range(self.group_num):
-            # s = random.sample(range(79), 10)
+            feature_list = random.sample(range(79), 10)
             self.workers_project = []
             for pid in self.label_distribution[i]:
                 print(self.projects[pid].count_label())
-                # self.projects[pid].set_data_bin_feature(slice)
+                self.projects[pid].set_data_bin_feature(feature_list)
                 self.workers_project.append(self.projects[pid])
             self.aggregate()
             loader = torch.utils.data.DataLoader(
