@@ -1,5 +1,5 @@
 # Federated GBDT
-> 在模拟分布式环境中实现的FATE secureBoost，并参考LightGBM尝试进行了一些调整
+> 在代码模拟的分布式环境中实现FATE secureBoost，并参考LightGBM尝试进行了一些调整
 
 参加第一届全国大学生协作学习与网络安全大赛时使用的代码，可用来学习参考
 
