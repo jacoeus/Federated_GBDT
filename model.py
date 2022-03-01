@@ -46,8 +46,7 @@ class FedAveragingGradsTestSuit(unittest.TestCase):
         self.workers = []
         print('cpu count: ', os.cpu_count())
         for u in range(0, self.n_users):
-            for u in range(0, self.n_users):
-                self.workers.append(Worker(self.booster_dim, self.bin_num, self.feature_num, u))
+            self.workers.append(Worker(self.booster_dim, self.bin_num, self.feature_num, u))
 
     def _clear(self):
         shutil.rmtree(self.testworkdir)
